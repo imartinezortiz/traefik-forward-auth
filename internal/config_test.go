@@ -31,6 +31,7 @@ func TestConfigDefaults(t *testing.T) {
 	assert.Equal("_forward_auth_csrf", c.CSRFCookieName)
 	assert.Equal("auth", c.DefaultAction)
 	assert.Equal("google", c.DefaultProvider)
+	assert.False(c.DefaultUseAccept)
 	assert.Len(c.Domains, 0)
 	assert.Equal(time.Second*time.Duration(43200), c.Lifetime)
 	assert.Equal("/_oauth", c.Path)
@@ -46,6 +47,7 @@ func TestConfigParseArgs(t *testing.T) {
 		"--rule.1.action=allow",
 		"--rule.1.rule=PathPrefix(`/one`)",
 		"--rule.two.action=auth",
+		"--rule.two.useAccept=true",
 		"--rule.two.rule=\"Host(`two.com`) && Path(`/two`)\"",
 	})
 	require.Nil(t, err)
@@ -61,11 +63,13 @@ func TestConfigParseArgs(t *testing.T) {
 			Action:   "allow",
 			Rule:     "PathPrefix(`/one`)",
 			Provider: "oidc",
+			UseAccept: false,
 		},
 		"two": {
 			Action:   "auth",
 			Rule:     "Host(`two.com`) && Path(`/two`)",
 			Provider: "oidc",
+			UseAccept: true,
 		},
 	}, c.Rules)
 }
@@ -383,4 +387,32 @@ func TestConfigCommaSeparatedList(t *testing.T) {
 	marshal, err := list.MarshalFlag()
 	assert.Nil(err)
 	assert.Equal("one,two", marshal, "should marshal back to comma sepearated list")
+}
+
+func TestConfigDefaultUseAccept(t *testing.T) {
+	assert := assert.New(t)
+	c, err := NewConfig([]string{
+		"--default-use-accept",
+		"--rule.1.action=allow",
+		"--rule.1.rule=PathPrefix(`/one`)",
+		"--rule.two.action=auth",
+		"--rule.two.rule=\"Host(`two.com`) && Path(`/two`)\"",
+	})
+	require.Nil(t, err)
+
+	// Check rules
+	assert.Equal(map[string]*Rule{
+		"1": {
+			Action:   "allow",
+			Rule:     "PathPrefix(`/one`)",
+			Provider: "google",
+			UseAccept: true,
+		},
+		"two": {
+			Action:   "auth",
+			Rule:     "Host(`two.com`) && Path(`/two`)",
+			Provider: "google",
+			UseAccept: true,
+		},
+	}, c.Rules)
 }

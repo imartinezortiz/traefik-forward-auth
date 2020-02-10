@@ -338,6 +338,131 @@ func TestServerRouteQuery(t *testing.T) {
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 }
 
+func TestAcceptHeaderNegotiation(t *testing.T) {
+	assert := assert.New(t)
+	config = newDefaultConfig()
+
+	// Should redirect if Accept not provided
+	req := newDefaultHttpRequest("/")
+	res, _ := doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected if Accept header is not provided")
+
+	// Should redirect if <any>/<any> mime type is provided
+	req = newDefaultHttpRequest("/")
+	req.Header.Add("Accept", "*/*")
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected because Accept header usage is disabled by default")
+
+	// Should redirect if text/<any subtype> mime type is provided
+	req = newDefaultHttpRequest("/")
+	req.Header.Add("Accept", "text/*")
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected because Accept header usage is disabled by default")
+
+	// Should redirect if text/html mime type is provided
+	req = newDefaultHttpRequest("/")
+	req.Header.Add("Accept", "text/html")
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected because Accept header usage is disabled by default")
+
+	// Should redirect if text/<any> <any>/<any> has a greater quality/priority than other mime types. If there are several with same priority leftmost is chosen.
+	req = newDefaultHttpRequest("/")
+	acceptHeader := "text/html, text/plain, application/json, */*"
+	req.Header.Add("Accept", acceptHeader)
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected because Accept header usage is disabled by default")
+
+	// Should redirect if text/<any> <any>/<any> has a greater quality/priority than other mime types. If there are several with same priority leftmost is chosen.
+	req = newDefaultHttpRequest("/")
+	acceptHeader = "application/json, text/html, text/plain, */*"
+	req.Header.Add("Accept", acceptHeader)
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected because Accept header usage is disabled by default")
+
+	// Should redirect if text/<any> <any>/<any> has a greater quality/priority than other mime types. If there are several with same priority leftmost is chosen.
+	req = newDefaultHttpRequest("/")
+	acceptHeader = "text/html;q=0.8, text/plain;q=0.9, application/json, */*;q=0.2"
+	req.Header.Add("Accept", acceptHeader)
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "401 expected having greater quality/priority any non text/<any> mime type: "+acceptHeader)
+
+	config = newDefaultConfig()
+	config.DefaultUseAccept = true
+
+	// Should redirect if Accept not provided
+	req = newDefaultHttpRequest("/")
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected if Accept header is not provided")
+
+	// Should redirect if <any>/<any> mime type is provided
+	req = newDefaultHttpRequest("/")
+	req.Header.Add("Accept", "*/*")
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected if just */* mime type provided")
+
+	// Should redirect if text/<any subtype> mime type is provided
+	req = newDefaultHttpRequest("/")
+	req.Header.Add("Accept", "text/*")
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected if just text/* mime type provided")
+
+	// Should redirect if text/html mime type is provided
+	req = newDefaultHttpRequest("/")
+	req.Header.Add("Accept", "text/html")
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected if just text/html mime type provided")
+
+	// Should redirect if text/<any> <any>/<any> has a greater quality/priority than other mime types. If there are several with same priority leftmost is chosen.
+	req = newDefaultHttpRequest("/")
+	acceptHeader = "text/html, text/plain, application/json, */*"
+	req.Header.Add("Accept", acceptHeader)
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected having equal quality/priority and text/<any> being the leftmost mime type provided: "+acceptHeader)
+
+	// Should redirect if text/<any> <any>/<any> has a greater quality/priority than other mime types. If there are several with same priority leftmost is chosen.
+	req = newDefaultHttpRequest("/")
+	acceptHeader = "application/json, text/html, text/plain, */*"
+	req.Header.Add("Accept", acceptHeader)
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(401, res.StatusCode, "401 expected having equal quality/priority and being non text/XXXX the leftmost mime type provided: "+acceptHeader)
+
+	// Should redirect if text/<any> <any>/<any> has a greater quality/priority than other mime types. If there are several with same priority leftmost is chosen.
+	req = newDefaultHttpRequest("/")
+	acceptHeader = "text/html;q=0.8, text/plain;q=0.9, application/json, */*;q=0.2"
+	req.Header.Add("Accept", acceptHeader)
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(401, res.StatusCode, "401 expected having greater quality/priority any non text/<any> mime type: "+acceptHeader)
+
+	config = newDefaultConfig()
+	config.Rules = map[string]*Rule{
+		"1": {
+			Action: "auth",
+			Rule:   "Path(`/`)",
+			Provider: "google",
+		},
+		"2": {
+			Action: "auth",
+			Rule:   "Path(`/api`)",
+			Provider: "google",
+			UseAccept: true,
+		},
+	}
+
+	// Should redirect because it is not enabled for the path /.
+	req = newDefaultHttpRequest("/")
+	acceptHeader = "application/json, text/html, text/plain, */*"
+	req.Header.Add("Accept", acceptHeader)
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(http.StatusTemporaryRedirect, res.StatusCode, "redirect expected because use of Accept header it is not enabled for the rule that applies to path /")
+
+	// Should not redirect because quality for application/json largest and UseAccept is enabled for the rule that applies to the path /api.
+	req = newDefaultHttpRequest("/api")
+	acceptHeader = "application/json"
+	req.Header.Add("Accept", acceptHeader)
+	res, _ = doHttpRequest(req, nil)
+	assert.Equal(401, res.StatusCode, "401 expected "+acceptHeader)
+}
+
 /**
  * Utilities
  */

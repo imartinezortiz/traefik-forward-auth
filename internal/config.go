@@ -31,6 +31,7 @@ type Config struct {
 	CSRFCookieName  string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
 	DefaultAction   string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
 	DefaultProvider string               `long:"default-provider" env:"DEFAULT_PROVIDER" default:"google" choice:"google" choice:"oidc" description:"Default provider"`
+	DefaultUseAccept bool                `long:"default-use-accept" env:"DEFAULT_USE_ACCEPT" description:"Enable the use of Accept header by default to control if the request it is redirected or not based on its value"`
 	Domains         CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
 	LifetimeString  int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
 	Path            string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
@@ -194,6 +195,7 @@ func (c *Config) parseUnknownFlag(option string, arg flags.SplitArgument, args [
 		rule, ok := c.Rules[name]
 		if !ok {
 			rule = NewRule()
+			rule.UseAccept = c.DefaultUseAccept
 			c.Rules[name] = rule
 		}
 
@@ -205,6 +207,14 @@ func (c *Config) parseUnknownFlag(option string, arg flags.SplitArgument, args [
 			rule.Rule = val
 		case "provider":
 			rule.Provider = val
+		case "useAccept":
+			var boolValue bool
+			var err error
+			boolValue, err = strconv.ParseBool(val)
+			if err != nil {
+				return args, err
+			}
+			rule.UseAccept = boolValue
 		default:
 			return args, fmt.Errorf("invalid route param: %v", option)
 		}
@@ -321,6 +331,7 @@ type Rule struct {
 	Action   string
 	Rule     string
 	Provider string
+	UseAccept bool
 }
 
 func NewRule() *Rule {

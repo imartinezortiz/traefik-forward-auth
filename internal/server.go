@@ -7,6 +7,8 @@ import (
 	"github.com/containous/traefik/v2/pkg/rules"
 	"github.com/sirupsen/logrus"
 	"github.com/thomseddon/traefik-forward-auth/internal/provider"
+	// Meantime there is not standard golang support. See: https://github.com/golang/go/issues/19307
+	"github.com/markusthoemmes/goautoneg"
 )
 
 type Server struct {
@@ -32,7 +34,7 @@ func (s *Server) buildRoutes() {
 		if rule.Action == "allow" {
 			s.router.AddRoute(matchRule, 1, s.AllowHandler(name))
 		} else {
-			s.router.AddRoute(matchRule, 1, s.AuthHandler(rule.Provider, name))
+			s.router.AddRoute(matchRule, 1, s.AuthHandler(rule.Provider, rule.UseAccept, name))
 		}
 	}
 
@@ -43,7 +45,7 @@ func (s *Server) buildRoutes() {
 	if config.DefaultAction == "allow" {
 		s.router.NewRoute().Handler(s.AllowHandler("default"))
 	} else {
-		s.router.NewRoute().Handler(s.AuthHandler(config.DefaultProvider, "default"))
+		s.router.NewRoute().Handler(s.AuthHandler(config.DefaultProvider, config.DefaultUseAccept, "default"))
 	}
 }
 
@@ -66,7 +68,7 @@ func (s *Server) AllowHandler(rule string) http.HandlerFunc {
 }
 
 // Authenticate requests
-func (s *Server) AuthHandler(providerName, rule string) http.HandlerFunc {
+func (s *Server) AuthHandler(providerName string, useAccept bool, rule string) http.HandlerFunc {
 	p, _ := config.GetConfiguredProvider(providerName)
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +78,7 @@ func (s *Server) AuthHandler(providerName, rule string) http.HandlerFunc {
 		// Get auth cookie
 		c, err := r.Cookie(config.CookieName)
 		if err != nil {
-			s.authRedirect(logger, w, r, p)
+			s.notAuthenticated(logger, useAccept, w, r, p)
 			return
 		}
 
@@ -85,7 +87,7 @@ func (s *Server) AuthHandler(providerName, rule string) http.HandlerFunc {
 		if err != nil {
 			if err.Error() == "Cookie has expired" {
 				logger.Info("Cookie has expired")
-				s.authRedirect(logger, w, r, p)
+				s.notAuthenticated(logger, useAccept, w, r, p)
 			} else {
 				logger.Errorf("Invalid cookie: %v", err)
 				http.Error(w, "Not authorized", 401)
@@ -167,6 +169,33 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Redirect
 		http.Redirect(w, r, redirect, http.StatusTemporaryRedirect)
 	}
+}
+
+func (s *Server) notAuthenticated(logger *logrus.Entry, useAccept bool, w http.ResponseWriter, r *http.Request, p provider.Provider) {
+	if( ! useAccept ) {
+		s.authRedirect(logger, w, r, p)
+		return
+	}
+
+    // Redirect if request accepts HTML. Fail if request is AJAX, image, etc
+	acceptHeader := r.Header.Get("Accept")
+	if ( len(acceptHeader) == 0 ) {
+		s.authRedirect(logger, w, r, p)
+		return
+	}
+
+	acceptPart := goautoneg.ParseAccept(acceptHeader)[0]
+	switch acceptPart.Type {
+		case "text" :
+			s.authRedirect(logger, w, r, p)
+			return
+		case "*" :
+			s.authRedirect(logger, w, r, p)
+			return
+	}
+
+	logger.Debugf("Non-HTML request: %v", acceptHeader)
+	http.Error(w, "Not autenticated or authentication expired. Reload page to re-authenticate.", 401)
 }
 
 func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, p provider.Provider) {
