@@ -126,6 +126,7 @@ Application Options:
   --cookie-name=                                        Cookie Name (default: _forward_auth) [$COOKIE_NAME]
   --csrf-cookie-name=                                   CSRF Cookie Name (default: _forward_auth_csrf) [$CSRF_COOKIE_NAME]
   --default-action=[auth|allow]                         Default action (default: auth) [$DEFAULT_ACTION]
+  --default-use-accept                                  Enable the use of Accept header by default to control if the request it is redirected or not based on its value (default: false) [$DEFAULT_USE_ACCEPT]
   --domain=                                             Only allow given email domains, can be set multiple times [$DOMAIN]
   --lifetime=                                           Lifetime in seconds (default: 43200) [$LIFETIME]
   --url-path=                                           Callback URL Path (default: /_oauth) [$URL_PATH]
@@ -210,6 +211,16 @@ All options can be supplied in any of the following ways, in the following prece
 
    Default: `auth` (i.e. all requests require authentication)
 
+- `default-use-accept`
+
+   Enable to wether redirect the user to the login URL or just send back a 401 response, based on the value of [Accept](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept) header. After enabling this feature, if the requests advertises that accept the following mime types: ```text/html```, ```text/*```, ```*/*``` with the highest priority (based on the ```q=``` parameter value) then a redirect it is performed. In any other case a 401 response it is sent back.
+
+   For example an AJAX request usually sends an ```Accept: application/json``` header to advertises that is expecting a JSON response, so in this case the response will be a 401 if token session does not exists or has expired.
+
+   It is possible to configure this behavior at [rule](#rules) level.
+
+   Default: `false` (i.e. by default rules ignore the Accept header)
+
 - `domain`
 
    When set, only users matching a given domain will be permitted to access.
@@ -262,6 +273,9 @@ All options can be supplied in any of the following ways, in the following prece
            - ``Path(`path`, `/articles/{category}/{id:[0-9]+}`, ...)``
            - ``PathPrefix(`/products/`, `/articles/{category}/{id:[0-9]+}`)``
            - ``Query(`foo=bar`, `bar=baz`)``
+       - `useAccept` - same usage as [`default-use-accept`](#default-use-accept), supported values:
+           - `false` (default)
+           - `true`
 
    For example:
    ```
@@ -270,6 +284,10 @@ All options can be supplied in any of the following ways, in the following prece
 
    rule.two.action = allow
    rule.two.rule = Path(`/public`)
+
+   rule.three.action = auth
+   rule.three.rule = Path(`/api`)
+   rule.three.useAccept = true
    ```
 
    In the above example, the first rule would allow requests that begin with `/api/public` and contain the `Content-Type` header with a value of `application/json`. It would also allow requests that had the exact path `/public`.
@@ -338,3 +356,4 @@ Please note: For Auth Host mode to work, you must ensure that requests to your a
 ## License
 
 [MIT](https://github.com/thomseddon/traefik-forward-auth/blob/master/LICENSE.md)
+
